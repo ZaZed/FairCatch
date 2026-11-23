@@ -13,10 +13,20 @@ public class SleeperClient {
             .build();
 
     public CompletableFuture<String> getLeague(String leagueId) {
+        return getJson("/league/" + leagueId);
+    }
+
+    public CompletableFuture<String> getRosters(String leagueId) {
+        return getJson("/league/" + leagueId + "/rosters");
+    }
+
+    public CompletableFuture<String> getUsers(String leagueId) {
+        return getJson("/league/" + leagueId + "/users");
+    }
+
+    private CompletableFuture<String> getJson(String path) {
         HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(
-                        "https://api.sleeper.app/v1/league/" + leagueId
-                ))
+                .uri(URI.create("https://api.sleeper.app/v1" + path))
                 .timeout(Duration.ofSeconds(15))
                 .GET()
                 .build();
@@ -36,7 +46,7 @@ public class SleeperClient {
 
             if (data.isEmpty() || data.equals("null")) {
                 throw new IllegalStateException(
-                        "No league found. Check your league ID."
+                        "No data found. Check your league ID."
                 );
             }
 

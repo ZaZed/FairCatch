@@ -1,7 +1,11 @@
 package faircatch;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import java.awt.BorderLayout;
+import java.awt.GridLayout;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import javax.swing.*;
 
 public class FairCatchGUI extends JFrame {
@@ -9,21 +13,53 @@ public class FairCatchGUI extends JFrame {
 
     private final JTextField leagueInput = new JTextField(20);
     private final JButton loadButton = new JButton("Load League");
+
+    private final JSpinner weekInput = new JSpinner(
+            new SpinnerNumberModel(1, 1, 18, 1)
+    );
+
+    private final JComboBox<String> scoringInput = new JComboBox<>(
+            new String[]{
+                "Choose scoring...",
+                "Standard",
+                "Half PPR",
+                "PPR"
+            }
+    );
+
+    private final JButton projectionButton =
+            new JButton("Load Projections");
+
     private final JTextArea output = new JTextArea(
             "Enter your league ID, then click Load League."
     );
 
+    private LoadedLeague loadedLeague;
+    private Map<String, Projection> projections = Map.of();
+    private boolean busy;
+
     public FairCatchGUI() {
         super("Fair Catch");
 
-        setSize(800, 500);
+        setSize(1000, 650);
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setLocationRelativeTo(null);
 
-        JPanel controls = new JPanel();
-        controls.add(new JLabel("League ID:"));
-        controls.add(leagueInput);
-        controls.add(loadButton);
+        JPanel leagueControls = new JPanel();
+        leagueControls.add(new JLabel("League ID:"));
+        leagueControls.add(leagueInput);
+        leagueControls.add(loadButton);
+
+        JPanel projectionControls = new JPanel();
+        projectionControls.add(new JLabel("Week:"));
+        projectionControls.add(weekInput);
+        projectionControls.add(new JLabel("Scoring:"));
+        projectionControls.add(scoringInput);
+        projectionControls.add(projectionButton);
+
+        JPanel controls = new JPanel(new GridLayout(2, 1));
+        controls.add(leagueControls);
+        controls.add(projectionControls);
 
         output.setEditable(false);
         output.setLineWrap(true);
@@ -33,6 +69,16 @@ public class FairCatchGUI extends JFrame {
         add(new JScrollPane(output), BorderLayout.CENTER);
 
         loadButton.addActionListener(event -> loadLeague());
+        projectionButton.addActionListener(event -> loadProjections());
+
+        weekInput.addChangeListener(event -> clearProjections());
+
+        scoringInput.addActionListener(event -> {
+            clearProjections();
+            setBusy(busy);
+        });
+
+        setBusy(false);
     }
 
     private void loadLeague() {
@@ -43,9 +89,12 @@ public class FairCatchGUI extends JFrame {
             return;
         }
 
+        loadedLeague = null;
+        projections = Map.of();
+        scoringInput.setSelectedIndex(0);
+
         output.setText("Loading league, teams, and players...");
-        loadButton.setEnabled(false);
-        leagueInput.setEnabled(false);
+        setBusy(true);
 
         var leagueRequest = sleeper.getLeague(leagueId);
         var rostersRequest = sleeper.getRosters(leagueId);
@@ -58,33 +107,141 @@ public class FairCatchGUI extends JFrame {
                 usersRequest,
                 playersRequest
         ).thenApplyAsync(ignored -> {
-            return LeagueParser.summarize(
-                    leagueRequest.join(),
-                    rostersRequest.join(),
-                    usersRequest.join(),
-                    playersRequest.join()
+            String leagueJson = leagueRequest.join();
+            String rostersJson = rostersRequest.join();
+            String usersJson = usersRequest.join();
+            JsonNode players = playersRequest.join();
+
+            return new LoadedLeague(
+                    ProjectionReader.seasonOf(leagueJson),
+                    leagueJson,
+                    rostersJson,
+                    usersJson,
+                    players,
+                    LeagueParser.summarize(
+                            leagueJson,
+                            rostersJson,
+                            usersJson,
+                            players
+                    )
             );
+
+        }).whenComplete((league, error) -> {
+            SwingUtilities.invokeLater(() -> {
+                if (error != null) {
+                    output.setText(errorMessage(error));
+                } else {
+                    loadedLeague = league;
+                    output.setText(league.summary());
+                }
+
+                output.setCaretPosition(0);
+                setBusy(false);
+            });
+        });
+    }
+
+    private void loadProjections() {
+        if (loadedLeague == null || scoringInput.getSelectedIndex() == 0) {
+            return;
+        }
+
+        LoadedLeague league = loadedLeague;
+        int week = (Integer) weekInput.getValue();
+        String scoringName = (String) scoringInput.getSelectedItem();
+
+        String pointsField = switch (scoringInput.getSelectedIndex()) {
+            case 1 -> "pts_std";
+            case 2 -> "pts_half_ppr";
+            case 3 -> "pts_ppr";
+            default -> throw new IllegalStateException(
+                    "Choose a scoring format."
+            );
+        };
+
+        projections = Map.of();
+        output.setText("Loading projections for week " + week + "...");
+        setBusy(true);
+
+        var projectionRequest = sleeper.getProjections(
+                league.season(), week
+        ).thenApplyAsync(json -> {
+            return ProjectionReader.read(
+                    json,
+                    league.season(),
+                    week,
+                    pointsField
+            );
+        });
+
+        projectionRequest.thenApplyAsync(loaded -> {
+            return ProjectionReader.summarize(
+                    loaded,
+                    league.rostersJson(),
+                    league.players(),
+                    week,
+                    scoringName
+            );
+
         }).whenComplete((summary, error) -> {
             SwingUtilities.invokeLater(() -> {
-                loadButton.setEnabled(true);
-                leagueInput.setEnabled(true);
-
                 if (error != null) {
-                    Throwable cause = error.getCause() != null
-                            ? error.getCause()
-                            : error;
-
-                    String message = cause.getMessage();
-
-                    output.setText(message == null || message.isBlank()
-                            ? "Could not load the league. Check your connection."
-                            : message);
+                    output.setText(errorMessage(error));
                 } else {
+                    projections = projectionRequest.join();
                     output.setText(summary);
                 }
 
                 output.setCaretPosition(0);
+                setBusy(false);
             });
         });
+    }
+
+    private void clearProjections() {
+        projections = Map.of();
+
+        if (loadedLeague != null) {
+            output.setText(loadedLeague.summary());
+            output.setCaretPosition(0);
+        }
+    }
+
+    private void setBusy(boolean busy) {
+        this.busy = busy;
+
+        boolean leagueReady = !busy && loadedLeague != null;
+
+        loadButton.setEnabled(!busy);
+        leagueInput.setEnabled(!busy);
+        weekInput.setEnabled(leagueReady);
+        scoringInput.setEnabled(leagueReady);
+
+        projectionButton.setEnabled(
+                leagueReady && scoringInput.getSelectedIndex() > 0
+        );
+    }
+
+    private String errorMessage(Throwable error) {
+        while (error instanceof CompletionException
+                && error.getCause() != null) {
+            error = error.getCause();
+        }
+
+        String message = error.getMessage();
+
+        return message == null || message.isBlank()
+                ? "Could not complete the action."
+                : message;
+    }
+
+    private record LoadedLeague(
+            int season,
+            String leagueJson,
+            String rostersJson,
+            String usersJson,
+            JsonNode players,
+            String summary
+    ) {
     }
 }

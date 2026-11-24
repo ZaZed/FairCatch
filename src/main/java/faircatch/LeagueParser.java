@@ -103,7 +103,7 @@ public class LeagueParser {
         }
     }
 
-    private static String describePlayer(
+    public static String describePlayer(
             JsonNode players,
             String playerId
     ) {

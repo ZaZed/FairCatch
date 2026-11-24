@@ -139,4 +139,35 @@ private final Path playerCache = Path.of(
             return data;
         });
     }
+
+    public CompletableFuture<String> getProjections(int season, int week) {
+    if (season < 2000 || week < 1 || week > 18) {
+        return CompletableFuture.failedFuture(
+                new IllegalArgumentException("Invalid season or week.")
+        );
+    }
+
+    String url = "https://api.sleeper.com/projections/nfl/"
+            + season + "/" + week + "?season_type=regular";
+
+    HttpRequest request = HttpRequest.newBuilder()
+            .uri(URI.create(url))
+            .timeout(Duration.ofSeconds(30))
+            .GET()
+            .build();
+
+    return client.sendAsync(
+            request,
+            HttpResponse.BodyHandlers.ofString()
+    ).thenApply(response -> {
+        if (response.statusCode() != 200) {
+            throw new IllegalStateException(
+                    "Could not load projections. HTTP "
+                    + response.statusCode()
+            );
+        }
+
+        return response.body();
+    });
+}
 }

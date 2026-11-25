@@ -10,6 +10,7 @@ import javax.swing.*;
 
 public class FairCatchGUI extends JFrame {
     private final SleeperClient sleeper = new SleeperClient();
+    private final TradePanel tradePanel = new TradePanel();
 
     private final JTextField leagueInput = new JTextField(20);
     private final JButton loadButton = new JButton("Load League");
@@ -65,8 +66,17 @@ public class FairCatchGUI extends JFrame {
         output.setLineWrap(true);
         output.setWrapStyleWord(true);
 
+        JSplitPane split = new JSplitPane(
+                JSplitPane.HORIZONTAL_SPLIT,
+                new JScrollPane(output),
+                tradePanel
+        );
+
+        split.setDividerLocation(550);
+        split.setResizeWeight(0.6);
+
         add(controls, BorderLayout.NORTH);
-        add(new JScrollPane(output), BorderLayout.CENTER);
+        add(split, BorderLayout.CENTER);
 
         loadButton.addActionListener(event -> loadLeague());
         projectionButton.addActionListener(event -> loadProjections());
@@ -90,6 +100,7 @@ public class FairCatchGUI extends JFrame {
         }
 
         loadedLeague = null;
+        tradePanel.clearLeague();
         projections = Map.of();
         scoringInput.setSelectedIndex(0);
 
@@ -132,6 +143,13 @@ public class FairCatchGUI extends JFrame {
                     output.setText(errorMessage(error));
                 } else {
                     loadedLeague = league;
+
+                    tradePanel.setLeague(
+                            league.rostersJson(),
+                            league.usersJson(),
+                            league.players()
+                    );
+
                     output.setText(league.summary());
                 }
 
@@ -159,7 +177,8 @@ public class FairCatchGUI extends JFrame {
             );
         };
 
-        projections = Map.of();
+        clearProjections();
+
         output.setText("Loading projections for week " + week + "...");
         setBusy(true);
 
@@ -189,6 +208,12 @@ public class FairCatchGUI extends JFrame {
                     output.setText(errorMessage(error));
                 } else {
                     projections = projectionRequest.join();
+
+                    tradePanel.setProjections(
+                            projections,
+                            "Week " + week + " | " + scoringName + " preset"
+                    );
+
                     output.setText(summary);
                 }
 
@@ -200,6 +225,11 @@ public class FairCatchGUI extends JFrame {
 
     private void clearProjections() {
         projections = Map.of();
+
+        tradePanel.setProjections(
+                projections,
+                "No projections loaded"
+        );
 
         if (loadedLeague != null) {
             output.setText(loadedLeague.summary());
@@ -220,6 +250,8 @@ public class FairCatchGUI extends JFrame {
         projectionButton.setEnabled(
                 leagueReady && scoringInput.getSelectedIndex() > 0
         );
+
+        tradePanel.setBusy(busy);
     }
 
     private String errorMessage(Throwable error) {

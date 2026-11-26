@@ -360,4 +360,14 @@ public class TradePanel extends JPanel {
             return label;
         }
     }
+
+    public Integer getFirstRosterId() {
+        TeamChoice team = (TeamChoice) firstTeam.getSelectedItem();
+        return team == null ? null : team.rosterId();
+    }
+
+    public Integer getSecondRosterId() {
+        TeamChoice team = (TeamChoice) secondTeam.getSelectedItem();
+        return team == null ? null : team.rosterId();
+    }
 }

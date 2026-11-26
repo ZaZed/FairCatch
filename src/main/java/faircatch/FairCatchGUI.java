@@ -1,12 +1,26 @@
 package faircatch;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import java.awt.BorderLayout;
 import java.awt.GridLayout;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
-import javax.swing.*;
+
+import javax.swing.JButton;
+import javax.swing.JComboBox;
+import javax.swing.JFrame;
+import javax.swing.JLabel;
+import javax.swing.JPanel;
+import javax.swing.JScrollPane;
+import javax.swing.JSpinner;
+import javax.swing.JSplitPane;
+import javax.swing.JTextArea;
+import javax.swing.JTextField;
+import javax.swing.SpinnerNumberModel;
+import javax.swing.SwingUtilities;
+
+import com.fasterxml.jackson.databind.JsonNode;
 
 public class FairCatchGUI extends JFrame {
     private final SleeperClient sleeper = new SleeperClient();
@@ -30,6 +44,9 @@ public class FairCatchGUI extends JFrame {
 
     private final JButton projectionButton =
             new JButton("Load Projections");
+
+    private final JButton lineupButton =
+            new JButton("Best Lineups");
 
     private final JTextArea output = new JTextArea(
             "Enter your league ID, then click Load League."
@@ -57,6 +74,7 @@ public class FairCatchGUI extends JFrame {
         projectionControls.add(new JLabel("Scoring:"));
         projectionControls.add(scoringInput);
         projectionControls.add(projectionButton);
+        projectionControls.add(lineupButton);
 
         JPanel controls = new JPanel(new GridLayout(2, 1));
         controls.add(leagueControls);
@@ -80,13 +98,11 @@ public class FairCatchGUI extends JFrame {
 
         loadButton.addActionListener(event -> loadLeague());
         projectionButton.addActionListener(event -> loadProjections());
+        lineupButton.addActionListener(event -> showBestLineups());
 
         weekInput.addChangeListener(event -> clearProjections());
 
-        scoringInput.addActionListener(event -> {
-            clearProjections();
-            setBusy(busy);
-        });
+        scoringInput.addActionListener(event -> clearProjections());
 
         setBusy(false);
     }
@@ -223,6 +239,102 @@ public class FairCatchGUI extends JFrame {
         });
     }
 
+    private void showBestLineups() {
+        if (loadedLeague == null || projections.isEmpty()) {
+            output.setText("Load a league and its projections first.");
+            return;
+        }
+
+        Integer firstId = tradePanel.getFirstRosterId();
+        Integer secondId = tradePanel.getSecondRosterId();
+
+        if (firstId == null || secondId == null
+                || firstId.equals(secondId)) {
+            output.setText("Choose two different teams.");
+            return;
+        }
+
+        LoadedLeague league = loadedLeague;
+        Map<String, Projection> loadedProjections = projections;
+
+        int week = (Integer) weekInput.getValue();
+        String scoringName = (String) scoringInput.getSelectedItem();
+
+        output.setText("Finding the best starting lineups...");
+        setBusy(true);
+
+        CompletableFuture.supplyAsync(() -> {
+            LineupOptimizer.Result first = LineupReader.forRoster(
+                    league.leagueJson(),
+                    league.rostersJson(),
+                    firstId,
+                    league.players(),
+                    loadedProjections,
+                    week
+            );
+
+            LineupOptimizer.Result second = LineupReader.forRoster(
+                    league.leagueJson(),
+                    league.rostersJson(),
+                    secondId,
+                    league.players(),
+                    loadedProjections,
+                    week
+            );
+
+            return "BEST PROJECTED LINEUPS\n"
+                    + "Week " + week + " | " + scoringName + " preset\n"
+                    + "Custom league scoring adjustments are not applied.\n\n"
+                    + formatLineup("Team A", first, league.players())
+                    + "\n"
+                    + formatLineup("Team B", second, league.players());
+
+        }).whenComplete((summary, error) -> {
+            SwingUtilities.invokeLater(() -> {
+                output.setText(
+                        error == null ? summary : errorMessage(error)
+                );
+
+                output.setCaretPosition(0);
+                setBusy(false);
+            });
+        });
+    }
+
+    private static String formatLineup(
+            String teamName,
+            LineupOptimizer.Result lineup,
+            JsonNode players
+    ) {
+        StringBuilder result = new StringBuilder(teamName + "\n");
+
+        for (LineupOptimizer.Starter starter : lineup.starters()) {
+            result.append(starter.slot())
+                    .append(": ")
+                    .append(LeagueParser.describePlayer(
+                            players,
+                            starter.playerId()
+                    ))
+                    .append(" | ")
+                    .append(String.format(
+                            Locale.ROOT,
+                            "%.2f",
+                            starter.points()
+                    ))
+                    .append("\n");
+        }
+
+        result.append("TOTAL: ")
+                .append(String.format(
+                        Locale.ROOT,
+                        "%.2f",
+                        lineup.totalPoints()
+                ))
+                .append("\n");
+
+        return result.toString();
+    }
+
     private void clearProjections() {
         projections = Map.of();
 
@@ -235,6 +347,8 @@ public class FairCatchGUI extends JFrame {
             output.setText(loadedLeague.summary());
             output.setCaretPosition(0);
         }
+
+        setBusy(busy);
     }
 
     private void setBusy(boolean busy) {
@@ -249,6 +363,10 @@ public class FairCatchGUI extends JFrame {
 
         projectionButton.setEnabled(
                 leagueReady && scoringInput.getSelectedIndex() > 0
+        );
+
+        lineupButton.setEnabled(
+                leagueReady && !projections.isEmpty()
         );
 
         tradePanel.setBusy(busy);

@@ -48,6 +48,9 @@ public class FairCatchGUI extends JFrame {
     private final JButton lineupButton =
             new JButton("Best Lineups");
 
+    private final JButton analyzeButton =
+            new JButton("Analyze Trade");
+
     private final JTextArea output = new JTextArea(
             "Enter your league ID, then click Load League."
     );
@@ -75,6 +78,7 @@ public class FairCatchGUI extends JFrame {
         projectionControls.add(scoringInput);
         projectionControls.add(projectionButton);
         projectionControls.add(lineupButton);
+        projectionControls.add(analyzeButton);
 
         JPanel controls = new JPanel(new GridLayout(2, 1));
         controls.add(leagueControls);
@@ -99,28 +103,32 @@ public class FairCatchGUI extends JFrame {
         loadButton.addActionListener(event -> loadLeague());
         projectionButton.addActionListener(event -> loadProjections());
         lineupButton.addActionListener(event -> showBestLineups());
+        analyzeButton.addActionListener(event -> analyzeSelectedTrade());
 
         weekInput.addChangeListener(event -> clearProjections());
-
         scoringInput.addActionListener(event -> clearProjections());
 
         setBusy(false);
     }
 
     private void loadLeague() {
+        if (busy) {
+            return;
+        }
+
         String leagueId = leagueInput.getText().trim();
 
         if (!leagueId.matches("[0-9]+")) {
-            output.setText("Enter a league ID containing only numbers.");
+            showOutput("Enter a league ID containing only numbers.");
             return;
         }
 
         loadedLeague = null;
-        tradePanel.clearLeague();
         projections = Map.of();
+        tradePanel.clearLeague();
         scoringInput.setSelectedIndex(0);
 
-        output.setText("Loading league, teams, and players...");
+        showOutput("Loading league, teams, and players...");
         setBusy(true);
 
         var leagueRequest = sleeper.getLeague(leagueId);
@@ -156,7 +164,7 @@ public class FairCatchGUI extends JFrame {
         }).whenComplete((league, error) -> {
             SwingUtilities.invokeLater(() -> {
                 if (error != null) {
-                    output.setText(errorMessage(error));
+                    showOutput(errorMessage(error));
                 } else {
                     loadedLeague = league;
 
@@ -166,17 +174,22 @@ public class FairCatchGUI extends JFrame {
                             league.players()
                     );
 
-                    output.setText(league.summary());
+                    showOutput(league.summary());
                 }
 
-                output.setCaretPosition(0);
                 setBusy(false);
             });
         });
     }
 
     private void loadProjections() {
-        if (loadedLeague == null || scoringInput.getSelectedIndex() == 0) {
+        if (busy) {
+            return;
+        }
+
+        if (loadedLeague == null
+                || scoringInput.getSelectedIndex() == 0) {
+            showOutput("Load a league and choose a scoring format first.");
             return;
         }
 
@@ -195,53 +208,55 @@ public class FairCatchGUI extends JFrame {
 
         clearProjections();
 
-        output.setText("Loading projections for week " + week + "...");
+        showOutput("Loading projections for week " + week + "...");
         setBusy(true);
 
         var projectionRequest = sleeper.getProjections(
-                league.season(), week
-        ).thenApplyAsync(json -> {
-            return ProjectionReader.read(
-                    json,
-                    league.season(),
-                    week,
-                    pointsField
-            );
-        });
+                league.season(),
+                week
+        ).thenApplyAsync(json -> ProjectionReader.read(
+                json,
+                league.season(),
+                week,
+                pointsField
+        ));
 
-        projectionRequest.thenApplyAsync(loaded -> {
-            return ProjectionReader.summarize(
-                    loaded,
-                    league.rostersJson(),
-                    league.players(),
-                    week,
-                    scoringName
-            );
-
-        }).whenComplete((summary, error) -> {
+        projectionRequest.thenApplyAsync(loaded ->
+                ProjectionReader.summarize(
+                        loaded,
+                        league.rostersJson(),
+                        league.players(),
+                        week,
+                        scoringName
+                )
+        ).whenComplete((summary, error) -> {
             SwingUtilities.invokeLater(() -> {
                 if (error != null) {
-                    output.setText(errorMessage(error));
+                    showOutput(errorMessage(error));
                 } else {
                     projections = projectionRequest.join();
 
                     tradePanel.setProjections(
                             projections,
-                            "Week " + week + " | " + scoringName + " preset"
+                            "Week " + week + " | "
+                                    + scoringName + " preset"
                     );
 
-                    output.setText(summary);
+                    showOutput(summary);
                 }
 
-                output.setCaretPosition(0);
                 setBusy(false);
             });
         });
     }
 
     private void showBestLineups() {
+        if (busy) {
+            return;
+        }
+
         if (loadedLeague == null || projections.isEmpty()) {
-            output.setText("Load a league and its projections first.");
+            showOutput("Load a league and its projections first.");
             return;
         }
 
@@ -250,7 +265,7 @@ public class FairCatchGUI extends JFrame {
 
         if (firstId == null || secondId == null
                 || firstId.equals(secondId)) {
-            output.setText("Choose two different teams.");
+            showOutput("Choose two different teams.");
             return;
         }
 
@@ -260,7 +275,7 @@ public class FairCatchGUI extends JFrame {
         int week = (Integer) weekInput.getValue();
         String scoringName = (String) scoringInput.getSelectedItem();
 
-        output.setText("Finding the best starting lineups...");
+        showOutput("Finding the best starting lineups...");
         setBusy(true);
 
         CompletableFuture.supplyAsync(() -> {
@@ -283,19 +298,80 @@ public class FairCatchGUI extends JFrame {
             );
 
             return "BEST PROJECTED LINEUPS\n"
-                    + "Week " + week + " | " + scoringName + " preset\n"
-                    + "Custom league scoring adjustments are not applied.\n\n"
+                    + "Week " + week + " | "
+                    + scoringName + " preset\n"
+                    + "Custom league scoring adjustments "
+                    + "are not applied.\n\n"
                     + formatLineup("Team A", first, league.players())
                     + "\n"
                     + formatLineup("Team B", second, league.players());
 
         }).whenComplete((summary, error) -> {
             SwingUtilities.invokeLater(() -> {
-                output.setText(
+                showOutput(
                         error == null ? summary : errorMessage(error)
                 );
 
-                output.setCaretPosition(0);
+                setBusy(false);
+            });
+        });
+    }
+
+    private void analyzeSelectedTrade() {
+        if (busy) {
+            return;
+        }
+
+        if (loadedLeague == null || projections.isEmpty()) {
+            showOutput("Load a league and its projections first.");
+            return;
+        }
+
+        TradeSelection trade = tradePanel.getSelection();
+
+        if (trade == null) {
+            showOutput(
+                    "Choose two different teams "
+                    + "and one player from each."
+            );
+            return;
+        }
+
+        LoadedLeague league = loadedLeague;
+        Map<String, Projection> loadedProjections = projections;
+
+        int week = (Integer) weekInput.getValue();
+        String scoringName = (String) scoringInput.getSelectedItem();
+
+        showOutput("Calculating the trade's lineup impact...");
+        setBusy(true);
+
+        CompletableFuture.supplyAsync(() -> {
+            TradeAnalyzer.Result result = TradeAnalyzer.analyze(
+                    league.leagueJson(),
+                    league.rostersJson(),
+                    league.players(),
+                    loadedProjections,
+                    trade,
+                    week
+            );
+
+            return TradeReport.format(
+                    result,
+                    trade,
+                    league.rostersJson(),
+                    league.usersJson(),
+                    league.players(),
+                    week,
+                    scoringName
+            );
+
+        }).whenComplete((report, error) -> {
+            SwingUtilities.invokeLater(() -> {
+                showOutput(
+                        error == null ? report : errorMessage(error)
+                );
+
                 setBusy(false);
             });
         });
@@ -344,8 +420,7 @@ public class FairCatchGUI extends JFrame {
         );
 
         if (loadedLeague != null) {
-            output.setText(loadedLeague.summary());
-            output.setCaretPosition(0);
+            showOutput(loadedLeague.summary());
         }
 
         setBusy(busy);
@@ -355,9 +430,12 @@ public class FairCatchGUI extends JFrame {
         this.busy = busy;
 
         boolean leagueReady = !busy && loadedLeague != null;
+        boolean projectionsReady =
+                leagueReady && !projections.isEmpty();
 
         loadButton.setEnabled(!busy);
         leagueInput.setEnabled(!busy);
+
         weekInput.setEnabled(leagueReady);
         scoringInput.setEnabled(leagueReady);
 
@@ -365,11 +443,15 @@ public class FairCatchGUI extends JFrame {
                 leagueReady && scoringInput.getSelectedIndex() > 0
         );
 
-        lineupButton.setEnabled(
-                leagueReady && !projections.isEmpty()
-        );
+        lineupButton.setEnabled(projectionsReady);
+        analyzeButton.setEnabled(projectionsReady);
 
         tradePanel.setBusy(busy);
+    }
+
+    private void showOutput(String text) {
+        output.setText(text);
+        output.setCaretPosition(0);
     }
 
     private String errorMessage(Throwable error) {

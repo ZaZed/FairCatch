@@ -1,34 +1,48 @@
 # Fair Catch
 
-Fair Catch is a planned Java desktop app that evaluates fantasy football trades using Sleeper rosters and imported player projections.
+Fair Catch is a Java desktop app that analyzes fantasy football trades using Sleeper rosters and weekly player projections. You can optimize lineups, propose trade changes and see how those changes effect each team’s best projected starting lineup.
 
 ## Project Goal
 
-A trade can affect a team differently depending on its roster, starting positions, and bench players. Fair Catch will show how a proposed trade changes each team's best projected starting lineup, making the gains and losses easier to understand.
+A player’s value to a team depends on its starting positions, roster needs, and available bench replacements. Fair Catch helps managers understand a trade by comparing both teams’ strongest legal lineups before and after the exchange.
 
 ## MVP Scope
 
-The first version will evaluate one-for-one player trades for a single upcoming week.
+The current version supports one for one player trades for a single regular-season week.
 
-- Load both teams' players, starting positions, and scoring settings from a Sleeper league ID.
-- Read player projections from a CSV file prepared for the league's scoring format.
-- Provide a Java Swing GUI to select the league, week, projection file, teams, and traded players.
-- Check player ownership and report missing projections, invalid data, or lineups that cannot be filled.
-- Find each team's highest-projected legal starting lineup, including FLEX positions, without using a player twice.
-- Compare both teams before and after the trade and display projected totals, point differences, and lineup changes.
+Notable features include: 
 
-Trades will be hypothetical. The app will not change rosters on Sleeper. Results will describe the selected week's projected lineup impact, rather than a complete season-long trade valuation.
+- Load league information, teams, managers, and players using a Sleeper league ID.
+
+- Fetch weekly projections directly from Sleeper.
+
+- Select Standard, Half PPR, or PPR scoring.
+
+- Choose two teams and one player from each using a Java Swing interface.
+
+- Preview the proposed trade.
+
+- Find each team’s best projected starting lineup, including supported FLEX positions.
+
+- Simulate the trade using copies of the loaded rosters.
+
+- Display before and after totals, point differences, and players entering or leaving the starting lineup.
+
+- Report invalid selections, missing projections, and lineups that cannot be filled.
+
+All trades are hypothetical. Fair Catch does not submit trades or change rosters on Sleeper.
 
 ## Future Plans
 
 These features are planned for later versions:
 
 - Compare trades across multiple weeks, accounting for bye weeks and player availability.
-- Support two-for-one trades, required player drops, and selected replacement pickups.
+- Support two for one trades, required player drops, and selected replacement pickups.
 - Connect to a verified projection provider and calculate custom scoring from projected player statistics.
 - Evaluate bench depth by checking what happens when a starter is unavailable.
 - Suggest trades that help both teams and compare multiple offers.
 - Save previous analyses and export comparison reports.
+- Package the app so users can launch it without installing Maven.
 
 ## Tech Stack
 
@@ -38,18 +52,21 @@ These features are planned for later versions:
 | Java Swing | Desktop windows, menus, file selection, and results tables |
 | Java HttpClient | Requests to the Sleeper API |
 | Jackson | Convert JSON responses into Java objects |
-| Apache Commons CSV | Read projection files |
 | Maven | Manage dependencies and build the project |
-| JUnit | Test lineup calculations, trades, and input checks |
 | Git and GitHub | Track changes and store the project |
-| curl | Check API requests from the terminal |
 
 ## Data Sources
 
-[Sleeper's public API](https://docs.sleeper.com/) will provide league settings, rosters, and player information in JSON format. It is free for noncommercial use and does not require an API token.
+League information, rosters, managers, and player metadata come from Sleeper’s public API, which provides read only access without an API token.
 
-Player projections will come from a local CSV file in the MVP. Each row will identify a player by Sleeper player ID and include the week and projected points. Projections must match the selected league's scoring format.
+Weekly projections come from a separate, undocumented Sleeper endpoint. Both sources return JSON. Because the projection endpoint is undocumented, its availability and format may change.
+
+Player metadata is cached locally for up to 24 hours to reduce repeated downloads. CSV files are not required.
 
 ## Project Status
 
-Fair Catch is currently in the planning stage. The features above describe the intended build; the application is not implemented yet.
+The core MVP is implemented. Fair Catch loads Sleeper league data and weekly projections, simulates one for one trades, and compares each team’s best starting lineup before and after the exchange.
+
+The app currently runs through Maven and supports a single regular season week using Standard, Half PPR, or PPR scoring presets. 
+
+More features from  the future plans list in this markdown may or may not be implemented at a later date.
